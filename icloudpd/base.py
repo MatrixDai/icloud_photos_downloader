@@ -15,7 +15,7 @@ import click
 from tqdm import tqdm
 from tzlocal import get_localzone
 
-from pyicloud_ipd.exceptions import PyiCloudAPIResponseError
+from pyicloud.exceptions import PyiCloudAPIResponseException
 
 from icloudpd.logger import setup_logger
 from icloudpd.authentication import authenticator, TwoStepAuthRequiredError
@@ -204,12 +204,6 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     + ' Therefore, should not combine with --auto-delete option.',
     is_flag=True,
 )
-@click.option(
-    "--domain",
-    help="What iCloud root domain to use. Use 'cn' for mainland China (default: 'com')",
-    type=click.Choice(["com", "cn"]),
-    default="com",
-)
 @click.option("--watch-with-interval",
               help="Run downloading in a infinite cycle, waiting specified seconds between runs",
               type=click.IntRange(1),
@@ -247,7 +241,6 @@ def main(
         notification_script,
         threads_num,    # pylint: disable=W0613
         delete_after_download,
-        domain,
         watch_with_interval
 ):
     """Download all iCloud photos to a local directory"""
@@ -315,7 +308,6 @@ def main(
             no_progress_bar,
             notification_script,
             delete_after_download,
-            domain,
             logger,
             watch_with_interval
         )
@@ -341,15 +333,16 @@ def download_builder(
         def download_photo_(counter, photo):
             """internal function for actually downloading the photos"""
             filename = clean_filename(photo.filename)
-            if skip_videos and photo.item_type != "image":
+            itype = item_type(photo)
+            if skip_videos and itype != "image":
                 logger.set_tqdm_description(
                     f"Skipping {filename}, only downloading photos."
                 )
                 return False
-            if photo.item_type not in ("image", "movie"):
+            if itype not in ("image", "movie"):
                 logger.set_tqdm_description(
                     f"Skipping {filename}, only downloading photos and videos. "
-                    f"(Item type was: {photo.item_type})")
+                    f"(Item type was: {itype})")
                 return False
             try:
                 created_date = photo.created.astimezone(get_localzone())
@@ -555,7 +548,6 @@ def core(
         no_progress_bar,
         notification_script,
         delete_after_download,
-        domain,
         logger,
         watch_interval
 ):
@@ -567,7 +559,7 @@ def core(
         or notification_script is not None
     )
     try:
-        icloud = authenticator(domain)(
+        icloud = authenticator()(
             username,
             password,
             cookie_directory,
@@ -599,7 +591,7 @@ def core(
         # case exit.
         try:
             photos = icloud.photos.albums[album]
-        except PyiCloudAPIResponseError as err:
+        except PyiCloudAPIResponseException as err:
             # For later: come up with a nicer message to the user. For now take the
             # exception text
             print(err)
@@ -686,8 +678,7 @@ def core(
         def delete_photo(photo):
             """Delete a photo from the iCloud account."""
             logger.info("Deleting %s", clean_filename(photo.filename))
-            # pylint: disable=W0212
-            url = f"{icloud.photos._service_endpoint}/records/modify?"\
+            url = f"{icloud.photos.service_endpoint}/records/modify?"\
                 f"{urllib.parse.urlencode(icloud.photos.params)}"
             post_data = json.dumps(
                 {
@@ -749,3 +740,20 @@ def core(
             break
 
     return 0
+
+ITEM_TYPES = {
+    u"public.heic": u"image",
+    u"public.jpeg": u"image",
+    u"public.png": u"image",
+    u"com.apple.quicktime-movie": u"movie"
+}
+
+
+def item_type(photo):
+    # pylint: disable=W0212
+    itype = photo._master_record['fields']['itemType']['value']
+    if itype in ITEM_TYPES:
+        return ITEM_TYPES[itype]
+    if photo.filename.lower().endswith(('.heic', '.png', '.jpg', '.jpeg')):
+        return 'image'
+    return 'movie'
