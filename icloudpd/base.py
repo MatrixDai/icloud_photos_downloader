@@ -678,8 +678,7 @@ def core(
         def delete_photo(photo):
             """Delete a photo from the iCloud account."""
             logger.info("Deleting %s", clean_filename(photo.filename))
-            # pylint: disable=W0212
-            url = f"{icloud.photos._service_endpoint}/records/modify?"\
+            url = f"{icloud.photos.service_endpoint}/records/modify?"\
                 f"{urllib.parse.urlencode(icloud.photos.params)}"
             post_data = json.dumps(
                 {
@@ -751,6 +750,7 @@ ITEM_TYPES = {
 
 
 def item_type(photo):
+    # pylint: disable=W0212
     itype = photo._master_record['fields']['itemType']['value']
     if itype in ITEM_TYPES:
         return ITEM_TYPES[itype]
