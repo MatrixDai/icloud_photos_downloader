@@ -242,6 +242,11 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
               is_flag=True,
               default=False,
               )
+@click.option(
+    "--x-days-ago",
+    help="Number of days ago to filter photos by",
+    type=click.IntRange(1),
+)
 # a hacky way to get proper version because automatic detection does not
 # work for some reason
 @click.version_option(version="1.17.3")
@@ -282,6 +287,7 @@ def main(
         delete_after_download: bool,
         domain: str,
         watch_with_interval: Optional[int],
+        x_days_ago,
         dry_run: bool
 ):
     """Download all iCloud photos to a local directory"""
@@ -315,6 +321,10 @@ def main(
 
         if auto_delete and delete_after_download:
             print('--auto-delete and --delete-after-download are mutually exclusive')
+            sys.exit(2)
+
+        if recent and x_days_ago:
+            print('--recent and --x-days-ago are mutually exclusive')
             sys.exit(2)
 
         if watch_with_interval and (
@@ -369,6 +379,7 @@ def main(
                 domain,
                 logger,
                 watch_with_interval,
+                x_days_ago,
                 dry_run))
 
 
@@ -607,7 +618,8 @@ def download_builder(
 def delete_photo(
         logger: logging.Logger,
         icloud: PyiCloudService,
-        photo: PhotoAsset):
+        photo: PhotoAsset,
+        library: str):
     """Delete a photo from the iCloud account."""
     clean_filename_local = clean_filename(photo.filename)
     logger.debug(
@@ -619,6 +631,7 @@ def delete_photo(
         {
             "atomic": True,
             "desiredKeys": ["isDeleted"],
+            "zone": library,
             "operations": [{
                 "operationType": "update",
                 "record": {
@@ -628,7 +641,7 @@ def delete_photo(
                     "recordType": "CPLAsset",
                 }
             }],
-            "zoneID": {"zoneName": "PrimarySync"}
+            "zoneID": {"zoneName": library}
         }
     )
     icloud.photos.session.post(
@@ -641,7 +654,8 @@ def delete_photo(
 def delete_photo_dry_run(
         logger: logging.Logger,
         _icloud: PyiCloudService,
-        photo: PhotoAsset):
+        photo: PhotoAsset,
+        _library: str):
     """Dry run for deleting a photo from the iCloud"""
     logger.info(
         "[DRY RUN] Would delete %s in iCloud",
@@ -747,6 +761,7 @@ def core(
         domain: str,
         logger: logging.Logger,
         watch_interval: Optional[int],
+        x_days_ago: Optional[int],
         dry_run: bool
 ):
     """Download all iCloud photos to a local directory"""
@@ -841,7 +856,15 @@ def core(
 
             photos.exception_handler = error_handler
 
+            if x_days_ago is not None:
+                cutoff_date = datetime.datetime.now() - datetime.timedelta(days=x_days_ago)
+                cutoff_date = cutoff_date.replace(tzinfo=datetime.timezone.utc)
+                print(f"List photos older than {cutoff_date}")
+                photos = list(filter(lambda photo: hasattr(photo, 'created') and photo.created < cutoff_date, photos))
+
             photos_count: Optional[int] = len(photos)
+
+            print(f"Filter photos count: {photos_count}")
 
             # Optional: Only download the x most recent photos.
             if recent is not None:
@@ -912,7 +935,7 @@ def core(
 
                         def delete_cmd():
                             delete_local = delete_photo_dry_run if dry_run else delete_photo
-                            delete_local(logger, icloud, item)
+                            delete_local(logger, icloud, item, 'PrimarySync' if not library else library)
 
                         retrier(delete_cmd, error_handler)
 
