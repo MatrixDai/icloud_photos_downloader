@@ -6,7 +6,11 @@
 # arm7l instead of v6 issue: https://stackoverflow.com/questions/78535054/how-do-you-docker-buildx-build-for-arm-v6-on-qemu-emulated-platforms-that-pres
 
 # map source image to base
-FROM python:3.13 AS base
+# Use Bullseye so libpython3.12.so is compiled against glibc 2.31 (covering Ubuntu 20.04+).
+# Python 3.12 on Bookworm needs GLIBC_2.35 (compiled there); on Bullseye it needs 2.31.
+# Bullseye ships patchelf 0.12 (too old for auditwheel), so we install patchelf via pip
+# which provides a manylinux_2_17 binary (glibc 2.17+) that satisfies auditwheel >= 0.14.
+FROM python:3.12-bullseye AS base
 ARG TARGETARCH
 ARG TARGETVARIANT
 ENV DEBIAN_FRONTEND=noninteractive
@@ -49,11 +53,12 @@ COPY scripts scripts/
 COPY binary_dist binary_dist/
 COPY pyproject.toml .
 COPY src src/
-# staticx must be installed after scons - they do not have deps that pip can handle
+# staticx==0.14.1 is incompatible with newer pip/setuptools (pkg_resources removed);
+# building dynamic binaries only — PyInstaller --onefile bundles all Python code & deps.
 # building on arm32v7 cause error in rust from apt (1.63.0): https://github.com/rust-lang/cargo/issues/8719
 #   workaround is to have /root/.cargo in tmpfs https://github.com/crazy-max/ghaction-docker-buildx/issues/172
 #   https://github.com/rust-lang/cargo/issues/9545#issuecomment-855282576
-#   https://github.com/rust-lang/cargo/issues/8719#issuecomment-1207488994   
+#   https://github.com/rust-lang/cargo/issues/8719#issuecomment-1207488994
 # caching registry as a wa https://stackoverflow.com/a/60590697
 #--mount=type=cache,target=/root/.cargo/registry,sharing=shared \
 RUN \
@@ -65,14 +70,12 @@ RUN \
     pip3 cache list && \
     python3 -m pip install --disable-pip-version-check -r requirements-pip.txt && \
     pip3 install --disable-pip-version-check . --group dev --group devlinux && \
-    BOOTLOADER_CC=musl-gcc pip3 install --disable-pip-version-check staticx==0.14.1
+    pip3 install --disable-pip-version-check "patchelf>=0.14"
 RUN \
     . .venv/bin/activate && \
     echo "Building binaries..." && \
     scripts/build_bin1 icloudpd  && \
     scripts/build_bin1 icloud && \
-    scripts/build_static icloudpd && \
-    scripts/build_static icloud && \
     scripts/build_whl
 
 FROM scratch

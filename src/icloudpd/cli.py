@@ -74,6 +74,13 @@ def add_options_for_user(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default=None,
     )
     cloned.add_argument(
+        "--x-days-ago",
+        help="Only process assets created within the last X days. Mutually exclusive with --skip-created-before.",
+        type=int,
+        default=None,
+        dest="x_days_ago",
+    )
+    cloned.add_argument(
         "--until-found",
         help="Download the most recently added photos until we find X number of "
         "previously downloaded consecutive photos (default: download all photos)",
@@ -429,6 +436,8 @@ def format_help() -> str:
 
 
 def map_to_config(user_ns: argparse.Namespace) -> UserConfig:
+    if user_ns.x_days_ago is not None and user_ns.skip_created_before is not None:
+        raise argparse.ArgumentError(None, "--x-days-ago and --skip-created-before are mutually exclusive")
     return UserConfig(
         username=user_ns.username,
         password=user_ns.password,
@@ -469,7 +478,11 @@ def map_to_config(user_ns: argparse.Namespace) -> UserConfig:
         ),
         align_raw=map_align_raw_to_enum(user_ns.align_raw),
         file_match_policy=FileMatchPolicy(user_ns.file_match_policy),
-        skip_created_before=user_ns.skip_created_before,
+        skip_created_before=(
+            datetime.timedelta(days=user_ns.x_days_ago)
+            if user_ns.x_days_ago is not None
+            else user_ns.skip_created_before
+        ),
         skip_created_after=user_ns.skip_created_after,
         skip_photos=user_ns.skip_photos,
     )
