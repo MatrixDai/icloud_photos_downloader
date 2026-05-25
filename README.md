@@ -71,6 +71,41 @@ icloudpd --username my@email.address --password my_password --auth-only
 > [!TIP]
 > This feature can also be used to check and verify that the session is still authenticated. 
 
+## Building Linux arm64 Binary on macOS
+
+Prerequisites: [OrbStack](https://orbstack.dev) (or Docker Desktop) with buildx support.
+
+**One-time setup** — create the buildx builder:
+
+```bash
+docker buildx create --use --driver=docker-container --name container --bootstrap
+```
+
+**Build:**
+
+```bash
+docker buildx build . \
+  --platform=linux/arm64 \
+  --builder=container \
+  --progress plain \
+  -o dist \
+  -f Dockerfile.build
+```
+
+Output lands in `dist/`:
+
+| File | Description |
+|------|-------------|
+| `dist/icloudpd` | Main downloader binary (Linux arm64, glibc ≥ 2.31) |
+| `dist/icloud` | pyicloud CLI binary (Linux arm64, glibc ≥ 2.31) |
+| `dist/icloudpd-*.whl` | Python wheel (manylinux2014 aarch64) |
+
+The binaries are self-contained PyInstaller bundles — no Python installation needed on the target. They run on Ubuntu 20.04+, Debian 11 (Bullseye)+, and Raspberry Pi OS (Bullseye) or any Linux arm64 with glibc ≥ 2.31.
+
+> [!NOTE]
+> The build uses Python 3.12 on Debian Bullseye to keep the glibc requirement at 2.31.
+> Python 3.13 on Bookworm raises it to 2.38, which excludes many common arm64 targets.
+
 ## Contributing
 
 Want to contribute to iCloud Photos Downloader? Awesome! Check out the [contributing guidelines](CONTRIBUTING.md) to get involved.
